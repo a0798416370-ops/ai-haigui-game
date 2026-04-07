@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import Message from './Message';
-import { buildSystemPrompt } from '../utils/promptBuilder';
-import { callDeepSeek } from '../utils/deepseek';
+import { buildSystemPrompt } from '../lib/promptBuilder';
+import { callDeepSeek } from '../lib/deepseek';
 
 export default function ChatBox() {
   const [input, setInput] = useState('');
@@ -66,7 +66,7 @@ export default function ChatBox() {
     setLoading(false);
 
     if (aiContent.includes('你找到了')) {
-      setTimeout(() => useGameStore.getState().revealBottom(), 1500);
+      setTimeout(() => useGameStore.getState().revealBottom('win'), 1500);
     }
   }
 
