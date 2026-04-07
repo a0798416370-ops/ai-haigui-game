@@ -1,0 +1,318 @@
+# AGENTS.md — AI 海龟汤游戏开发指令
+
+## 项目概述
+
+AI 驱动的海龟汤推理游戏。玩家阅读「汤面」，通过向 AI 提问推理出「汤底」真相。
+核心设计命题：**让玩家在卡死时感受到张力，而不是放弃。**
+解决方案：AI 主持人分阶段行为控制机制（见第5章）。
+
+技术栈：React + TypeScript + Tailwind CSS + Zustand + DeepSeek API + Vercel
+
+---
+
+## 1. 项目文件结构
+
+严格按以下结构，不得随意新增顶层目录：
+src/
+├── components/
+│   ├── GameCard.tsx          # 游戏大厅题目卡片
+│   ├── ChatBox.tsx           # 游戏页面聊天区域
+│   ├── Message.tsx           # 单条消息气泡
+│   ├── DifficultySelector.tsx# 难度选择页面
+│   ├── StoryReveal.tsx       # 汤底揭晓（分层动效）
+│   ├── HintBadge.tsx         # 引导话术金色边框标注
+│   ├── ReasoningLog.tsx      # 推理路径回顾
+│   └── ShareCard.tsx         # 分享卡片生成
+├── pages/
+│   ├── Home.tsx              # 首页 / 游戏大厅
+│   ├── Game.tsx              # 游戏主页面
+│   └── Result.tsx            # 结果页面
+├── store/
+│   └── gameStore.ts          # Zustand 全局状态（唯一数据源）
+├── data/
+│   └── stories.ts            # 题目数据
+├── lib/
+│   ├── deepseek.ts           # DeepSeek API 封装
+│   ├── promptBuilder.ts      # System Prompt 动态构建
+│   └── stuckDetector.ts      # 卡死检测算法
+├── types/
+│   └── index.ts              # 所有类型定义（唯一来源）
+├── App.tsx
+└── main.tsx
+
+---
+
+## 2. 代码规范
+
+### 命名规范
+- 组件名：`PascalCase`（如 `GameCard`、`ChatBox`）
+- 函数名：`camelCase`（如 `buildSystemPrompt`、`handleSendQuestion`）
+- 常量：`UPPER_SNAKE_CASE`（如 `DIFFICULTY_CONFIG`、`DEEPSEEK_API_URL`）
+- 类型/接口：直接用语义名，**不加 T 前缀**（如 `Story`、`GameState`、`Message`）
+- Zustand store hook：`useGameStore`
+
+### 代码风格
+- 全部使用函数式组件 + Hooks，禁止 class component
+- 每个组件文件只导出一个默认组件
+- 所有类型必须从 `src/types/index.ts` 导入，禁止在组件内临时定义类型
+- 状态变更必须通过 Zustand store 的 action，禁止在组件内直接 set
+- 每个函数写一行注释说明用途
+
+### 禁止行为
+- ❌ 禁止硬编码 API Key（必须用 `import.meta.env.VITE_DEEPSEEK_API_KEY`）
+- ❌ 禁止在组件内直接调用 DeepSeek API（必须通过 `src/lib/deepseek.ts`）
+- ❌ 禁止复用上一轮的 System Prompt（每次调用前必须重新构建）
+- ❌ 禁止在 `src/types/index.ts` 之外定义全局类型
+
+---
+
+## 3. 设计规范
+
+### 色彩系统
+| 用途 | Tailwind 类 | 说明 |
+|------|------------|------|
+| 页面背景 | `bg-slate-900` | 主背景，深蓝近黑 |
+| 卡片背景 | `bg-slate-800` | 次级背景 |
+| 强调色 | `text-amber-400` / `border-amber-400` | 金色，用于引导话术、高亮 |
+| 玩家气泡 | `bg-blue-700` | 右对齐 |
+| AI 气泡（普通） | `bg-slate-700` | 左对齐 |
+| AI 气泡（引导） | `bg-slate-700 border-l-4 border-amber-400` | 金色左边框 |
+| AI 气泡（关键线索） | `bg-amber-900 text-amber-200 font-bold` | 金色背景 |
+| 主文字 | `text-slate-100` | |
+| 次要文字 | `text-slate-400` | |
+
+### UI 规范
+- 圆角：`rounded-lg`（卡片）、`rounded-2xl`（气泡）
+- 阴影：`shadow-lg`
+- 间距：优先用 `gap-*` 和 `space-y-*`，不用 margin 堆叠
+- 动效：AI 回答用打字机效果逐字出现；省略号「……」出现后必须 `delay-500` 再继续
+- 移动端优先：所有布局默认移动端，用 `md:` 前缀适配桌面端
+
+---
+
+## 4. 类型定义（src/types/index.ts 完整内容）
+```typescript
+export type Difficulty = 1 | 2 | 3 | 4 | 5;
+export type MessageRole = 'user' | 'assistant';
+export type AIAnswer = '是' | '否' | '无关' | '你找到了';
+export type MessageType = 'normal' | 'hint' | 'key_clue' | 'system';
+export type GamePhase = 'idle' | 'selecting' | 'playing' | 'result';
+export type AIPhase = 1 | 2; // 1=严格期 2=引导期
+
+export interface KeyPoint {
+  point: string;
+  importance: 'critical' | 'supporting';
+}
+
+export interface ReasoningLayer {
+  layer: number;
+  clue: string;
+  hint: string;
+}
+
+export interface HintTemplate {
+  type: 'identity' | 'emotion' | 'context' | 'time' | 'motive' | 'perspective';
+  hint: string;
+}
+
+export interface Story {
+  id: string;
+  title: string;
+  difficulty: Difficulty;
+  estimated_minutes: number;
+  tags: string[];
+  surface: string;        // 汤面，玩家可见
+  bottom: string;         // 汤底，仅注入 AI，不渲染到前端
+  key_points: KeyPoint[];
+  reasoning_path: ReasoningLayer[];
+  hint_templates: HintTemplate[];
+  key_clue: string;       // 第4次求助时直接给出的线索
+}
+
+export interface Message {
+  id: string;
+  role: MessageRole;
+  content: string;
+  answer?: AIAnswer;
+  type: MessageType;
+  timestamp: number;
+}
+
+export interface ReasoningLogEntry {
+  question: string;
+  answer: string;
+  timestamp: number;
+  is_breakthrough: boolean; // AI 回答「是」即为突破
+}
+
+export interface GameState {
+  phase: GamePhase;
+  currentStory: Story | null;
+  selectedDifficulty: Difficulty | null;
+  aiPhase: AIPhase;
+  stuckCount: number;       // 连续无效回答计数
+  totalHints: number;       // 本局已用引导次数
+  maxHints: number;         // 本局引导上限（由难度决定）
+  stuckThreshold: number;   // 触发引导的阈值（由难度决定）
+  messages: Message[];
+  reasoning_log: ReasoningLogEntry[];
+  isLoading: boolean;
+  isRevealed: boolean;
+}
+```
+
+---
+
+## 5. 核心机制：AI 分阶段节奏控制
+
+> ⚠️ 这是整个项目最重要的机制，所有 AI 相关代码必须严格遵守。
+
+### 5.1 难度与阈值配置（src/lib/stuckDetector.ts）
+```typescript
+const DIFFICULTY_CONFIG: Record<Difficulty, { stuckThreshold: number; maxHints: number }> = {
+  1: { stuckThreshold: 3,  maxHints: 5 },
+  2: { stuckThreshold: 4,  maxHints: 4 },
+  3: { stuckThreshold: 5,  maxHints: 3 },
+  4: { stuckThreshold: 7,  maxHints: 2 },
+  5: { stuckThreshold: 10, maxHints: 1 },
+};
+```
+
+### 5.2 阶段行为规则
+
+**阶段一（严格期）— 默认状态**
+- 只回答「是」「否」「无关」，不添加任何解释或方向提示
+- 回答字数 ≤ 15 字
+- 语气有氛围感（允许用「……」停顿）
+
+**阶段二（引导期）— stuckCount ≥ stuckThreshold 时触发**
+- 先回答「是/否/无关」，追加一句方向性暗示
+- 暗示只指向「思考维度」，不指向「具体答案」
+- 从 `story.hint_templates` 中选取，优先选未用过的类型
+- 回答字数 ≤ 40 字
+- 触发后：`stuckCount` 归零，`totalHints + 1`，`aiPhase` 重置为 1
+
+**关键线索模式 — totalHints ≥ maxHints 且再次卡死时触发**
+- 直接输出 `story.key_clue`，不调用 AI
+- UI 用金色背景气泡区分显示
+
+### 5.3 每次 AI 回答后的状态更新逻辑
+```typescript
+// updateAfterAnswer 的判断优先级（严格按此顺序）：
+// 1. 是否触发关键线索（totalHints >= maxHints && stuckCount+1 >= stuckThreshold）
+// 2. 是否触发引导（stuckCount+1 >= stuckThreshold）
+// 3. 是否重置 stuckCount（回答为「是」或「你找到了」）
+// 4. 普通累加 stuckCount
+```
+
+### 5.4 System Prompt 构建规则（src/lib/promptBuilder.ts）
+
+- **每次调用 AI 前必须重新构建**，不允许缓存复用
+- 根据当前 `aiPhase` 注入不同的阶段指令
+- `story.bottom` 只注入 System Prompt，**绝对不能出现在前端渲染的任何地方**
+
+---
+
+## 6. DeepSeek API 调用规范（src/lib/deepseek.ts）
+```typescript
+// 固定参数，不允许修改：
+model: 'deepseek-chat'
+temperature: 0.7   // 保留氛围感
+max_tokens: 150    // 强制短回答
+
+// API Key 获取方式：
+const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+
+// 消息结构：
+// [{ role: 'system', content: systemPrompt }, ...conversationHistory, { role: 'user', content: question }]
+// conversationHistory 只包含 user/assistant 消息，不含 system
+```
+
+---
+
+## 7. Zustand Store 规范（src/store/gameStore.ts）
+
+Store 暴露以下 actions，组件只能调用这些，不允许直接 set：
+
+| Action | 调用时机 |
+|--------|---------|
+| `startGame(story, difficulty)` | 玩家确认难度后 |
+| `addMessage(msg)` | 玩家发送问题后、AI 回答后各调用一次 |
+| `updateAfterAnswer(answerText)` | AI 回答添加到 messages 之后立即调用 |
+| `triggerHint()` | 由 `updateAfterAnswer` 内部调用，不在组件中直接调用 |
+| `triggerKeyClue()` | 由 `updateAfterAnswer` 内部调用，不在组件中直接调用 |
+| `revealBottom()` | AI 回答包含「你找到了」时，延迟 1500ms 后调用 |
+| `resetGame()` | 玩家点击「再来一局」 |
+| `setLoading(bool)` | API 调用前后各调用一次 |
+
+---
+
+## 8. 组件渲染规则
+
+### Message.tsx
+- `type === 'hint'`：气泡加金色左边框 `border-l-4 border-amber-400`
+- `type === 'key_clue'`：气泡用 `bg-amber-900 text-amber-200 font-bold`
+- AI 回答必须用打字机效果，`……` 停顿 500ms 后继续输出
+- `story.bottom` 禁止在此组件或任何子组件中渲染
+
+### StoryReveal.tsx（汤底揭示）
+1. 第一阶段：只显示 `key_points` 中 `importance === 'critical'` 的条目，其余模糊
+2. 3 秒后或用户点击：展开完整 `story.bottom`
+3. 最终展示本局统计：总问题数、有效突破数（`is_breakthrough === true` 的数量）、引导使用次数
+
+### DifficultySelector.tsx
+- 展示 5 个难度卡片，每个显示：星级 + 一句话体验描述 + 预计时长
+- 选中态：`ring-2 ring-amber-400`
+- 确认按钮未选难度时 `disabled`
+
+---
+
+## 9. 环境变量
+```bash
+# .env.local（本地开发，已加入 .gitignore）
+VITE_DEEPSEEK_API_KEY=your_key_here
+
+# Vercel 生产环境：在 Dashboard → Settings → Environment Variables 中设置
+# Key: VITE_DEEPSEEK_API_KEY
+```
+
+---
+
+## 10. 开发优先级
+
+### P0 — 当前必须实现
+1. `src/types/index.ts` 完整类型定义
+2. `src/lib/stuckDetector.ts` 难度配置与卡死检测
+3. `src/lib/promptBuilder.ts` System Prompt 动态构建
+4. `src/lib/deepseek.ts` API 封装
+5. `src/store/gameStore.ts` Zustand store
+6. `DifficultySelector.tsx` 难度选择
+7. `Game.tsx` + `ChatBox.tsx` + `Message.tsx` 游戏主流程
+8. `StoryReveal.tsx` 汤底揭示
+9. `src/data/stories.ts` 至少 5 道题目（覆盖难度 1~5）
+
+### P1 — 下一阶段
+- `Home.tsx` 游戏大厅
+- `ReasoningLog.tsx` 推理路径回顾
+- `ShareCard.tsx` 分享功能
+- 移动端适配细节优化
+
+### P2 — 后续迭代
+- 用户登录与记录保存
+- 排行榜
+- 自定义题目投稿
+
+---
+
+## 11. 测试清单
+
+每次实现新功能后，必须手动验证以下内容：
+
+- [ ] 选择难度后，`stuckThreshold` 和 `maxHints` 是否正确初始化
+- [ ] 连续发送无效问题，第 N 个（N = stuckThreshold）是否触发阶段二
+- [ ] 阶段二触发后，`stuckCount` 是否归零，`aiPhase` 是否重置为 1
+- [ ] 引导次数耗尽后再次卡死，是否给出 `key_clue` 而非再次调用 AI
+- [ ] `story.bottom` 是否只存在于 System Prompt，没有渲染到任何 UI
+- [ ] AI 回答包含「你找到了」时，是否延迟 1500ms 后触发汤底揭示
+- [ ] 移动端（375px）和桌面端（1280px）布局是否正常
+- [ ] `.env.local` 是否在 `.gitignore` 中，API Key 没有出现在代码里
