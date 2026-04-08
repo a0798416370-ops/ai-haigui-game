@@ -16,8 +16,7 @@ export default function Game() {
 
   useEffect(() => {
     if (phase === 'result') {
-      const { endType } = useGameStore.getState();
-      navigate('/result', { state: { endType } });
+      navigate('/result', { state: { endType: 'give_up' } });
     }
   }, [phase]);
 

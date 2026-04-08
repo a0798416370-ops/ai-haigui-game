@@ -17,8 +17,19 @@ export default function Result() {
   }, [currentStory]);
 
   if (!currentStory || !endType) {
-    navigate('/');
-    return null;
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-400 mb-4">数据加载失败</p>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-amber-500 text-slate-900 px-6 py-3 rounded-lg font-bold"
+          >
+            返回大厅
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const userMessages = messages.filter((m) => m.role === 'user');
