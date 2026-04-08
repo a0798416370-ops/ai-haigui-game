@@ -1,22 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
+import type { Story } from '../types';
 
 export default function Result() {
   const location = useLocation();
   const navigate = useNavigate();
-  const endType = location.state?.endType as 'win' | 'give_up' | undefined;
-  const { currentStory, messages, reasoning_log, totalHints, resetGame } = useGameStore();
+  const { messages, reasoning_log, resetGame } = useGameStore();
+
+  const endType = (location.state?.endType ?? useGameStore.getState().endType) as 'win' | 'give_up' | undefined;
+
+  const storyData = (location.state?.story ?? useGameStore.getState().currentStory) as Story | null;
+  const totalQuestions = (location.state?.totalQuestions ?? messages.filter((m) => m.role === 'user').length) as number;
+  const hintsUsed = (location.state?.hintsUsed ?? useGameStore.getState().totalHints) as number;
+
   const [showFull, setShowFull] = useState(false);
   const [showLog, setShowLog] = useState(false);
 
   useEffect(() => {
-    if (!currentStory) return;
+    if (!storyData) return;
     const t = setTimeout(() => setShowFull(true), 3000);
     return () => clearTimeout(t);
-  }, [currentStory]);
+  }, [storyData]);
 
-  if (!currentStory || !endType) {
+  if (!storyData || !endType) {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
         <div className="text-center">
@@ -32,18 +39,17 @@ export default function Result() {
     );
   }
 
-  const userMessages = messages.filter((m) => m.role === 'user');
   const breakthroughs = reasoning_log.filter((e) => e.is_breakthrough);
 
   const rating =
-    totalHints === 0 ? '🔥 独立破案' :
-    totalHints === 1 ? '⭐ 小试牛刀' :
-    totalHints === 2 ? '💡 稳步推理' :
+    hintsUsed === 0 ? '🔥 独立破案' :
+    hintsUsed === 1 ? '⭐ 小试牛刀' :
+    hintsUsed === 2 ? '💡 稳步推理' :
     '🐢 龟速前进';
 
   const resultLabel = endType === 'win' ? '胜利推理' : '放弃查看';
 
-  const criticalPoints = currentStory.key_points.filter(
+  const criticalPoints = storyData.key_points.filter(
     (k) => k.importance === 'critical'
   );
 
@@ -61,7 +67,7 @@ export default function Result() {
           : 'text-slate-300 text-2xl font-bold'}>
           {endType === 'win' ? '🎉 你找到了真相！' : '真相揭晓'}
         </h1>
-        <p className="text-slate-500 text-sm mt-2">{currentStory.title}</p>
+        <p className="text-slate-500 text-sm mt-2">{storyData.title}</p>
       </div>
 
       {/* 2. 汤底分层揭示区域 */}
@@ -83,7 +89,7 @@ export default function Result() {
         {/* 完整汤底 */}
         {showFull ? (
           <div className="bg-slate-800 rounded-lg p-6 text-slate-100 leading-relaxed transition-all duration-700">
-            {currentStory.bottom}
+            {storyData.bottom}
           </div>
         ) : (
           <button
@@ -98,7 +104,7 @@ export default function Result() {
       {/* 3. 本局统计 */}
       <div className="w-full max-w-2xl grid grid-cols-2 gap-4 mb-8">
         <div className="bg-slate-800 rounded-lg p-4 text-center">
-          <p className="text-amber-400 text-2xl font-bold">{userMessages.length}</p>
+          <p className="text-amber-400 text-2xl font-bold">{totalQuestions}</p>
           <p className="text-slate-400 text-xs mt-1">总提问数</p>
         </div>
         <div className="bg-slate-800 rounded-lg p-4 text-center">
@@ -106,7 +112,7 @@ export default function Result() {
           <p className="text-slate-400 text-xs mt-1">有效突破</p>
         </div>
         <div className="bg-slate-800 rounded-lg p-4 text-center">
-          <p className="text-amber-400 text-2xl font-bold">{totalHints}</p>
+          <p className="text-amber-400 text-2xl font-bold">{hintsUsed}</p>
           <p className="text-slate-400 text-xs mt-1">使用引导</p>
         </div>
         <div className="bg-slate-800 rounded-lg p-4 text-center">

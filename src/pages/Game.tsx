@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { stories } from '../data/stories';
 import { useGameStore } from '../store/gameStore';
@@ -10,21 +10,21 @@ export default function Game() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
-  const { phase } = useGameStore();
 
   const story = stories.find((s) => s.id === id);
 
-  useEffect(() => {
-    if (phase === 'result') {
-      navigate('/result', { state: { endType: 'give_up' } });
-    }
-  }, [phase]);
-
-  useEffect(() => {
-    return () => {
-      useGameStore.getState().resetGame();
-    };
-  }, []);
+  const handleGiveUp = () => {
+    const { currentStory, messages, totalHints } = useGameStore.getState();
+    useGameStore.getState().revealBottom('give_up');
+    navigate('/result', {
+      state: {
+        endType: 'give_up',
+        story: currentStory,
+        totalQuestions: messages.filter((m) => m.role === 'user').length,
+        hintsUsed: totalHints,
+      },
+    });
+  };
 
   if (!story) {
     return (
@@ -74,7 +74,7 @@ export default function Game() {
       <div className="bg-slate-800 border-t border-slate-700 px-4 py-3 text-center flex-shrink-0">
         <button
           className="text-slate-500 hover:text-slate-300 text-sm underline"
-          onClick={() => useGameStore.getState().revealBottom('give_up')}
+          onClick={handleGiveUp}
         >
           放弃推理，查看真相
         </button>
